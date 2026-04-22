@@ -29,6 +29,23 @@ class Handler(BaseHTTPRequestHandler):
             return
         self.send_json_response({"error": "not found"}, status=404)
 
+    def do_POST(self):
+        content_len = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(content_len) if content_len else b"{}"
+        try:
+            data = json.loads(body.decode("utf-8"))
+        except json.JSONDecodeError:
+            self.send_json_response({"error": "invalid json body"}, status=400)
+            return
+
+        if self.path == "/tasks/update":
+            self.send_json_response({"accepted": True, "task": data})
+            return
+        if self.path == "/prompts/create":
+            self.send_json_response({"accepted": True, "prompt": data})
+            return
+        self.send_json_response({"error": "not found"}, status=404)
+
 
 if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8011

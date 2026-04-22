@@ -31,7 +31,11 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         content_len = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(content_len) if content_len else b"{}"
-        data = json.loads(body.decode("utf-8"))
+        try:
+            data = json.loads(body.decode("utf-8"))
+        except json.JSONDecodeError:
+            self.send_json_response({"error": "invalid json body"}, status=400)
+            return
 
         if self.path == "/tasks/update":
             self.send_json_response({"accepted": True, "task": data})
