@@ -36,7 +36,7 @@ services:
     working_dir: /app
     profiles: ["python-llm"]
     command: >
-      sh -lc 'pip install --no-cache-dir -r requirements.txt && uvicorn main:app --host 0.0.0.0 --port 8010'
+      sh -lc 'python main.py 8010'
     volumes:
       - ./cms/apps/python-llm-bridge:/app
     ports:
@@ -49,7 +49,7 @@ services:
     working_dir: /app
     profiles: ["greswitch"]
     command: >
-      sh -lc 'pip install --no-cache-dir -r requirements.txt && uvicorn main:app --host 0.0.0.0 --port 8011'
+      sh -lc 'python main.py 8011'
     volumes:
       - ./cms/apps/greswitch-bridge:/app
     ports:
