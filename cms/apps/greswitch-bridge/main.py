@@ -4,7 +4,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 
 class Handler(BaseHTTPRequestHandler):
-    def _send(self, payload, status=200):
+    def send_json_response(self, payload, status=200):
         body = json.dumps(payload).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
@@ -14,10 +14,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/health":
-            self._send({"status": "ok", "service": "greswitch-bridge"})
+            self.send_json_response({"status": "ok", "service": "greswitch-bridge"})
             return
         if self.path == "/capabilities":
-            self._send(
+            self.send_json_response(
                 {
                     "supports": [
                         "task-updates",
@@ -27,10 +27,14 @@ class Handler(BaseHTTPRequestHandler):
                 }
             )
             return
-        self._send({"error": "not found"}, status=404)
+        self.send_json_response({"error": "not found"}, status=404)
 
 
 if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8011
     server = HTTPServer(("0.0.0.0", port), Handler)
-    server.serve_forever()
+    print(f"greswitch-bridge listening on {port}")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        server.server_close()

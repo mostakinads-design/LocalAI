@@ -4,7 +4,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 
 class Handler(BaseHTTPRequestHandler):
-    def _send(self, payload, status=200):
+    def send_json_response(self, payload, status=200):
         body = json.dumps(payload).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
@@ -14,10 +14,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/health":
-            self._send({"status": "ok", "service": "python-llm-bridge"})
+            self.send_json_response({"status": "ok", "service": "python-llm-bridge"})
             return
         if self.path == "/models/options":
-            self._send(
+            self.send_json_response(
                 {
                     "models": [
                         {"id": "qwen3", "provider": "localai"},
@@ -26,7 +26,7 @@ class Handler(BaseHTTPRequestHandler):
                 }
             )
             return
-        self._send({"error": "not found"}, status=404)
+        self.send_json_response({"error": "not found"}, status=404)
 
     def do_POST(self):
         content_len = int(self.headers.get("Content-Length", 0))
@@ -34,15 +34,19 @@ class Handler(BaseHTTPRequestHandler):
         data = json.loads(body.decode("utf-8"))
 
         if self.path == "/tasks/update":
-            self._send({"accepted": True, "task": data})
+            self.send_json_response({"accepted": True, "task": data})
             return
         if self.path == "/prompts/create":
-            self._send({"accepted": True, "prompt": data})
+            self.send_json_response({"accepted": True, "prompt": data})
             return
-        self._send({"error": "not found"}, status=404)
+        self.send_json_response({"error": "not found"}, status=404)
 
 
 if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8010
     server = HTTPServer(("0.0.0.0", port), Handler)
-    server.serve_forever()
+    print(f"python-llm-bridge listening on {port}")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        server.server_close()

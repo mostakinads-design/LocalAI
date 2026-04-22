@@ -38,6 +38,7 @@ docker compose -f docker-compose.cms.yaml --profile with-localai --profile pytho
    - `/prompts/create`
    - `/models/options`
 3. Add the connector name to `CMS_APP_CONNECTORS`.
+   - Example: `CMS_APP_CONNECTORS=python-llm-bridge,greswitch-bridge`
 4. Keep each connector in its own folder under `cms/apps/<connector-name>/` for modular growth.
 
 This keeps the architecture extensible so new applications can be integrated without changing LocalAI core services.

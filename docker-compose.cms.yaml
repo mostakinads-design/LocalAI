@@ -11,7 +11,7 @@ services:
       DB_CONNECTION: sqlite
       DB_DATABASE: /var/www/html/database/database.sqlite
       LOCALAI_BASE_URL: http://api:8080/v1
-      CMS_APP_CONNECTORS: python-llm,greswitch
+      CMS_APP_CONNECTORS: python-llm-bridge,greswitch-bridge
       CMS_PROMPT_CREATION_ENABLED: "true"
       CMS_TASK_UPDATES_ENABLED: "true"
       CMS_MODEL_OPTIONS_ENABLED: "true"
