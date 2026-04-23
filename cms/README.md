@@ -161,6 +161,151 @@ curl -X POST http://localhost:8012/config/reload
 
 ---
 
+## crm-billing integration (Liberu CRM — billing invoice auto-generation)
+
+Integrates [`mostakinads-design/crm-laravel`](https://github.com/mostakinads-design/crm-laravel)
+— a Laravel 12 + Filament 5 CRM with contacts, deals, and billing — with LocalAI for
+**AI-powered billing invoice auto-generation**.
+
+When a deal is created or reaches a configured stage, the CRM queue worker calls the bridge's
+`/invoices/generate` endpoint. LocalAI receives the deal data, generates a complete, structured
+invoice (line items, totals, tax, payment terms), and the result is recorded as a tracked task.
+
+### Architecture
+
+```
+Liberu CRM queue worker
+        │ POST /invoices/generate   (or POST /v1/chat/completions)
+        ▼
+crm-billing-bridge (port 8013)  ── records task ──► GET /tasks (task visibility)
+        │
+        │ POST /v1/chat/completions (structured invoice prompt)
+        ▼
+LocalAI api (port 8080)
+        │
+        ▼ structured invoice JSON
+crm-billing-bridge
+        │ stores result on task
+        ▼
+CRM receives invoice object → creates invoice record in DB
+```
+
+### Quick start
+
+```bash
+# 1. Clone the Liberu CRM app into the expected path
+git clone https://github.com/mostakinads-design/crm-laravel cms/crm-billing
+
+# 2. Copy the LocalAI env template
+cp cms/crm-billing/.env.localai cms/crm-billing/.env
+
+# 3. Start everything (CRM + MySQL + queue worker + bridge + LocalAI)
+docker compose -f docker-compose.cms.yaml \
+  --profile crm-billing --profile with-localai up -d
+```
+
+| Service | URL |
+|---|---|
+| Liberu CRM | http://localhost:8093 |
+| Invoice task visibility | http://localhost:8013/tasks |
+| LocalAI API | http://localhost:8080/v1 |
+
+### Invoice auto-generation API
+
+The bridge exposes a dedicated invoice generation endpoint that any service can call:
+
+```bash
+curl -X POST http://localhost:8013/invoices/generate \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "customer_name": "Acme Corp",
+    "customer_email": "billing@acme.com",
+    "company": "Acme Corp",
+    "deal_title": "Annual SaaS Subscription",
+    "deal_value": 4800,
+    "currency": "USD",
+    "products": "SaaS platform access (12 months), Priority support",
+    "notes": "Renewing from last year"
+  }'
+```
+
+**Response:**
+```json
+{
+  "task_id": "550e8400-...",
+  "invoice": {
+    "invoice_number": "INV-2024-0001",
+    "issue_date": "2024-04-23",
+    "due_date": "2024-05-23",
+    "currency": "USD",
+    "client": { "name": "Acme Corp", "email": "billing@acme.com" },
+    "line_items": [
+      { "description": "SaaS platform access (12 months)", "quantity": 1, "unit_price": 4400, "total": 4400 },
+      { "description": "Priority support", "quantity": 1, "unit_price": 400, "total": 400 }
+    ],
+    "subtotal": 4800,
+    "tax_rate": 0.1,
+    "tax_amount": 480,
+    "total": 5280,
+    "payment_terms": "Net 30",
+    "notes": "Thank you for renewing!"
+  }
+}
+```
+
+### Watching invoice generation tasks
+
+```bash
+# List all invoice and AI generation jobs
+curl http://localhost:8013/tasks
+
+# Detail of a specific job (includes invoice_number, total, customer, deal)
+curl http://localhost:8013/tasks/<task-id>
+```
+
+### Hot-reload model / prompt config
+
+Edit `cms/apps/crm-billing-bridge/config.json` then:
+
+```bash
+curl -X POST http://localhost:8013/config/reload
+```
+
+To use a different model per request without restarting, set `override_model` to `null` in
+`config.json` and pass `"model": "mistral"` in your invoice generate request body.
+
+### Calling the bridge from a Laravel queue job
+
+Add this to a Laravel job in the CRM codebase:
+
+```php
+$response = Http::post('http://crm-billing-bridge:8013/invoices/generate', [
+    'customer_name' => $deal->contact->name,
+    'customer_email' => $deal->contact->email,
+    'company'       => $deal->contact->company,
+    'deal_title'    => $deal->title,
+    'deal_value'    => $deal->value,
+    'currency'      => $deal->currency ?? 'USD',
+    'products'      => $deal->products->pluck('name')->implode(', '),
+]);
+
+if ($response->successful()) {
+    $invoice = $response->json('invoice');
+    Invoice::createFromAI($deal, $invoice);
+}
+```
+
+### Key environment variables (`.env.localai`)
+
+| Variable | Value | Purpose |
+|---|---|---|
+| `OPENAI_BASE_URL` | `http://crm-billing-bridge:8013/v1` | Routes CRM AI calls through the tracking bridge |
+| `OPENAI_API_KEY` | `localai` | Any non-empty value — LocalAI doesn't validate keys |
+| `DB_HOST` | `crm-billing-mysql` | MySQL 8 container |
+| `QUEUE_CONNECTION` | `database` | Invoice generation uses DB queue |
+
+---
+
 ## Extending to integrate any app
 
 1. Add a new app connector service in `docker-compose.cms.yaml` (or a compose override file).

@@ -147,6 +147,100 @@ services:
     networks:
       - cms_apps
 
+  # ── crm-billing integration (mostakinads-design/crm-laravel) ────────────
+  # Profile: crm-billing
+  # Prerequisites: clone https://github.com/mostakinads-design/crm-laravel
+  #   into ./cms/crm-billing, then:
+  #     cp cms/crm-billing/.env.localai cms/crm-billing/.env
+  #
+  # Start:
+  #   docker compose -f docker-compose.cms.yaml \
+  #     --profile crm-billing --profile with-localai up -d
+  #
+  # Invoice auto-generation API (via bridge):
+  #   POST http://localhost:8013/invoices/generate
+  #   Body: {"customer_name":"Acme","deal_title":"Annual Plan","deal_value":4800,"currency":"USD"}
+
+  crm-billing-mysql:
+    image: mysql:8.0
+    profiles: ["crm-billing"]
+    environment:
+      MYSQL_DATABASE: crm_billing
+      MYSQL_USER: crm
+      MYSQL_PASSWORD: crm_secret
+      MYSQL_ROOT_PASSWORD: root_secret
+    volumes:
+      - crm_billing_mysql:/var/lib/mysql
+    networks:
+      - cms_apps
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-ucrm", "-pcrm_secret"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  crm-billing:
+    image: php:8.2-cli
+    profiles: ["crm-billing"]
+    working_dir: /var/www/html
+    ports:
+      - "8093:8000"
+    depends_on:
+      crm-billing-mysql:
+        condition: service_healthy
+      crm-billing-bridge:
+        condition: service_started
+    volumes:
+      - ./cms/crm-billing:/var/www/html
+    command: >
+      sh -lc '
+      apt-get update -q && apt-get install -y -q unzip git libzip-dev libpdo-mysql libonig-dev libicu-dev &&
+      docker-php-ext-install pdo_mysql zip mbstring intl &&
+      curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer &&
+      composer install --no-interaction --prefer-dist &&
+      cp -n .env.localai .env || true &&
+      php artisan key:generate --force &&
+      php artisan migrate --force &&
+      php artisan db:seed --force &&
+      php artisan serve --host=0.0.0.0 --port=8000
+      '
+    networks:
+      - cms_apps
+
+  crm-billing-worker:
+    image: php:8.2-cli
+    profiles: ["crm-billing"]
+    working_dir: /var/www/html
+    depends_on:
+      crm-billing:
+        condition: service_started
+      crm-billing-mysql:
+        condition: service_healthy
+    volumes:
+      - ./cms/crm-billing:/var/www/html
+    command: >
+      sh -lc '
+      apt-get update -q && apt-get install -y -q libpdo-mysql libonig-dev libzip-dev libicu-dev &&
+      docker-php-ext-install pdo_mysql zip mbstring intl &&
+      sleep 30 &&
+      php artisan queue:work --sleep=3 --tries=3 --timeout=180
+      '
+    networks:
+      - cms_apps
+
+  crm-billing-bridge:
+    image: python:3.12-alpine
+    profiles: ["crm-billing"]
+    working_dir: /app
+    volumes:
+      - ./cms/apps/crm-billing-bridge:/app
+    ports:
+      - "8013:8013"
+    command: >
+      sh -lc 'python main.py 8013'
+    networks:
+      - cms_apps
+
   # ── LocalAI core service ─────────────────────────────────────────────────
   api:
     image: quay.io/go-skynet/local-ai:master
@@ -167,3 +261,4 @@ networks:
 volumes:
   cms_localai_models:
   laravel_ai_cms_mysql:
+  crm_billing_mysql:

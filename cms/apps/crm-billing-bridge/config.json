@@ -1,0 +1,11 @@
+{
+  "localai_base_url": "http://api:8080/v1",
+  "override_model": "qwen3",
+  "default_model": "qwen3",
+  "invoice_system_prompt": null,
+  "notes": [
+    "override_model: forces all CRM billing requests to this LocalAI model. Set to null to pass through the model the CRM requests.",
+    "invoice_system_prompt: override the built-in invoice generation system prompt. Set to null to use the default.",
+    "localai_base_url: LocalAI API base URL reachable from inside the Docker network."
+  ]
+}
