@@ -82,6 +82,85 @@ curl -X POST http://localhost:8010/tasks/update \
 curl http://localhost:8010/tasks/job-42
 ```
 
+---
+
+## laravel-ai-cms integration
+
+Integrates [`sanchit237/laravel-ai-cms`](https://github.com/sanchit237/laravel-ai-cms) — a
+Laravel 10 article CMS with **AI-generated slugs and summaries** — backed by LocalAI instead of
+OpenAI.
+
+### Architecture
+
+```
+laravel-ai-cms  ──POST /v1/chat/completions──►  laravel-ai-cms-bridge (port 8012)
+                                                         │
+                                                  records task +
+                                                  forwards to LocalAI
+                                                         │
+                                                         ▼
+                                                  LocalAI api (port 8080)
+```
+
+The bridge is an OpenAI-compatible proxy that **records every slug / summary generation as a
+tracked task**, visible in real time at `http://localhost:8012/tasks`.
+
+### Quick start
+
+```bash
+# 1. Clone the CMS app into the expected path
+git clone https://github.com/sanchit237/laravel-ai-cms cms/laravel-ai-cms
+
+# 2. Copy the LocalAI env template (no OpenAI key needed)
+cp cms/laravel-ai-cms/.env.localai cms/laravel-ai-cms/.env
+
+# 3. Start everything (CMS app + MySQL + queue worker + bridge + LocalAI)
+docker compose -f docker-compose.cms.yaml \
+  --profile laravel-ai-cms --profile with-localai up -d
+```
+
+| Service | URL |
+|---|---|
+| Laravel CMS API | http://localhost:8091 |
+| Task visibility (bridge) | http://localhost:8012/tasks |
+| LocalAI API | http://localhost:8080/v1 |
+
+### Watching AI generation tasks
+
+```bash
+# See all slug/summary generation jobs that ran (or are running)
+curl http://localhost:8012/tasks
+
+# Detail of one task
+curl http://localhost:8012/tasks/<task-id>
+```
+
+### Hot-reload model config
+
+Edit `cms/apps/laravel-ai-cms-bridge/config.json` (e.g. to change `override_model`) then:
+
+```bash
+curl -X POST http://localhost:8012/config/reload
+```
+
+### Default credentials (from laravel-ai-cms seeder)
+
+| Role | Email | Password |
+|---|---|---|
+| Admin | admin@example.com | password |
+| Author | author@example.com | password |
+
+### Key environment variables (`.env.localai`)
+
+| Variable | Value | Purpose |
+|---|---|---|
+| `OPENAI_BASE_URL` | `http://laravel-ai-cms-bridge:8012/v1` | Routes AI calls through the tracking bridge |
+| `OPENAI_API_KEY` | `localai` | Any non-empty value — LocalAI doesn't validate keys |
+| `DB_HOST` | `laravel-ai-cms-mysql` | MySQL container name |
+| `QUEUE_CONNECTION` | `database` | Async slug/summary jobs use the DB queue |
+
+---
+
 ## Extending to integrate any app
 
 1. Add a new app connector service in `docker-compose.cms.yaml` (or a compose override file).

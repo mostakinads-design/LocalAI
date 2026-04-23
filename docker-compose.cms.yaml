@@ -57,6 +57,97 @@ services:
     networks:
       - cms_apps
 
+  # ── laravel-ai-cms integration ──────────────────────────────────────────
+  # Profile: laravel-ai-cms
+  # Prerequisites: clone https://github.com/sanchit237/laravel-ai-cms
+  #   into ./cms/laravel-ai-cms, then:
+  #     cp cms/laravel-ai-cms/.env.localai cms/laravel-ai-cms/.env
+  #
+  # Start:
+  #   docker compose -f docker-compose.cms.yaml \
+  #     --profile laravel-ai-cms --profile with-localai up -d
+
+  laravel-ai-cms-mysql:
+    image: mysql:8.0
+    profiles: ["laravel-ai-cms"]
+    environment:
+      MYSQL_DATABASE: laravel_ai_cms
+      MYSQL_USER: cms
+      MYSQL_PASSWORD: cms_secret
+      MYSQL_ROOT_PASSWORD: root_secret
+    volumes:
+      - laravel_ai_cms_mysql:/var/lib/mysql
+    networks:
+      - cms_apps
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-ucms", "-pcms_secret"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  laravel-ai-cms:
+    image: php:8.2-cli
+    profiles: ["laravel-ai-cms"]
+    working_dir: /var/www/html
+    ports:
+      - "8091:8000"
+    depends_on:
+      laravel-ai-cms-mysql:
+        condition: service_healthy
+      laravel-ai-cms-bridge:
+        condition: service_started
+    volumes:
+      - ./cms/laravel-ai-cms:/var/www/html
+    command: >
+      sh -lc '
+      apt-get update -q && apt-get install -y -q unzip git libzip-dev libpdo-mysql libonig-dev &&
+      docker-php-ext-install pdo_mysql zip mbstring &&
+      curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer &&
+      composer install --no-interaction --prefer-dist &&
+      cp -n .env.localai .env || true &&
+      php artisan key:generate --force &&
+      php artisan migrate --force &&
+      php artisan db:seed --force &&
+      php artisan serve --host=0.0.0.0 --port=8000
+      '
+    networks:
+      - cms_apps
+
+  laravel-ai-cms-worker:
+    image: php:8.2-cli
+    profiles: ["laravel-ai-cms"]
+    working_dir: /var/www/html
+    depends_on:
+      laravel-ai-cms:
+        condition: service_started
+      laravel-ai-cms-mysql:
+        condition: service_healthy
+    volumes:
+      - ./cms/laravel-ai-cms:/var/www/html
+    command: >
+      sh -lc '
+      apt-get update -q && apt-get install -y -q libpdo-mysql libonig-dev libzip-dev &&
+      docker-php-ext-install pdo_mysql zip mbstring &&
+      sleep 30 &&
+      php artisan queue:work --sleep=3 --tries=3 --timeout=120
+      '
+    networks:
+      - cms_apps
+
+  laravel-ai-cms-bridge:
+    image: python:3.12-alpine
+    profiles: ["laravel-ai-cms"]
+    working_dir: /app
+    volumes:
+      - ./cms/apps/laravel-ai-cms-bridge:/app
+    ports:
+      - "8012:8012"
+    command: >
+      sh -lc 'python main.py 8012'
+    networks:
+      - cms_apps
+
+  # ── LocalAI core service ─────────────────────────────────────────────────
   api:
     image: quay.io/go-skynet/local-ai:master
     profiles: ["with-localai"]
@@ -75,3 +166,4 @@ networks:
 
 volumes:
   cms_localai_models:
+  laravel_ai_cms_mysql:
