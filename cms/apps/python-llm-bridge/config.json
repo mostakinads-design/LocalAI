@@ -1,0 +1,10 @@
+{
+  "models": [
+    {"id": "qwen3", "provider": "localai", "description": "Qwen3 LLM via LocalAI"},
+    {"id": "llama3", "provider": "localai", "description": "Llama 3 via LocalAI"},
+    {"id": "phi4", "provider": "localai", "description": "Phi-4 via LocalAI"}
+  ],
+  "localai_base_url": "http://api:8080/v1",
+  "task_retention_limit": 1000,
+  "prompt_creation_enabled": true
+}

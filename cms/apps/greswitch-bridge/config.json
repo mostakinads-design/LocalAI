@@ -1,0 +1,7 @@
+{
+  "localai_base_url": "http://api:8080/v1",
+  "greswitch_webhook_url": "",
+  "task_retention_limit": 1000,
+  "supported_task_types": ["ai-inference", "data-extract", "prompt-run"],
+  "prompt_creation_enabled": true
+}

@@ -100,6 +100,18 @@ Feel free to open up a Pull request (by clicking at the "Edit page" below) to ge
 
 This section provides step-by-step instructions for configuring specific software to work with LocalAI.
 
+### Laravel 12 + Filament 4 CMS (Modular)
+
+This repository now includes an optional, modular CMS stack that can run alongside LocalAI.
+
+- Compose file: `/docker-compose.cms.yaml`
+- Setup guide: `/cms/README.md`
+- Example app connectors:
+  - `/cms/apps/python-llm-bridge`
+  - `/cms/apps/greswitch-bridge`
+
+The CMS stack is designed so additional applications can be integrated by adding connector services without modifying LocalAI core services.
+
 ### OpenCode
 
 [OpenCode](https://opencode.ai) is an AI-powered code editor that can be configured to use LocalAI as its backend provider.

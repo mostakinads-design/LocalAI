@@ -1,0 +1,264 @@
+services:
+  cms:
+    image: composer:2
+    working_dir: /var/www/html
+    ports:
+      - "8090:8000"
+    environment:
+      APP_ENV: local
+      APP_DEBUG: "true"
+      APP_URL: http://localhost:8090
+      DB_CONNECTION: sqlite
+      DB_DATABASE: /var/www/html/database/database.sqlite
+      LOCALAI_BASE_URL: http://api:8080/v1
+      CMS_APP_CONNECTORS: python-llm-bridge,greswitch-bridge
+      CMS_PROMPT_CREATION_ENABLED: "true"
+      CMS_TASK_UPDATES_ENABLED: "true"
+      CMS_MODEL_OPTIONS_ENABLED: "true"
+    volumes:
+      - ./cms/laravel-app:/var/www/html
+    command: >
+      sh -lc '
+      mkdir -p database storage/framework/{cache,sessions,views} bootstrap/cache &&
+      touch database/database.sqlite &&
+      if [ ! -f artisan ]; then
+        composer create-project laravel/laravel . "^12.0" --prefer-dist --no-interaction &&
+        composer require filament/filament:^4.0 --no-interaction;
+      fi &&
+      php artisan key:generate --force &&
+      php artisan serve --host=0.0.0.0 --port=8000
+      '
+    networks:
+      - cms_apps
+
+  python-llm-bridge:
+    image: python:3.12-alpine
+    working_dir: /app
+    profiles: ["python-llm"]
+    command: >
+      sh -lc 'python main.py 8010'
+    volumes:
+      - ./cms/apps/python-llm-bridge:/app
+    ports:
+      - "8010:8010"
+    networks:
+      - cms_apps
+
+  greswitch-bridge:
+    image: python:3.12-alpine
+    working_dir: /app
+    profiles: ["greswitch"]
+    command: >
+      sh -lc 'python main.py 8011'
+    volumes:
+      - ./cms/apps/greswitch-bridge:/app
+    ports:
+      - "8011:8011"
+    networks:
+      - cms_apps
+
+  # ── laravel-ai-cms integration ──────────────────────────────────────────
+  # Profile: laravel-ai-cms
+  # Prerequisites: clone https://github.com/sanchit237/laravel-ai-cms
+  #   into ./cms/laravel-ai-cms, then:
+  #     cp cms/laravel-ai-cms/.env.localai cms/laravel-ai-cms/.env
+  #
+  # Start:
+  #   docker compose -f docker-compose.cms.yaml \
+  #     --profile laravel-ai-cms --profile with-localai up -d
+
+  laravel-ai-cms-mysql:
+    image: mysql:8.0
+    profiles: ["laravel-ai-cms"]
+    environment:
+      MYSQL_DATABASE: laravel_ai_cms
+      MYSQL_USER: cms
+      MYSQL_PASSWORD: cms_secret
+      MYSQL_ROOT_PASSWORD: root_secret
+    volumes:
+      - laravel_ai_cms_mysql:/var/lib/mysql
+    networks:
+      - cms_apps
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-ucms", "-pcms_secret"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  laravel-ai-cms:
+    image: php:8.2-cli
+    profiles: ["laravel-ai-cms"]
+    working_dir: /var/www/html
+    ports:
+      - "8091:8000"
+    depends_on:
+      laravel-ai-cms-mysql:
+        condition: service_healthy
+      laravel-ai-cms-bridge:
+        condition: service_started
+    volumes:
+      - ./cms/laravel-ai-cms:/var/www/html
+    command: >
+      sh -lc '
+      apt-get update -q && apt-get install -y -q unzip git libzip-dev libpdo-mysql libonig-dev &&
+      docker-php-ext-install pdo_mysql zip mbstring &&
+      curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer &&
+      composer install --no-interaction --prefer-dist &&
+      cp -n .env.localai .env || true &&
+      php artisan key:generate --force &&
+      php artisan migrate --force &&
+      php artisan db:seed --force &&
+      php artisan serve --host=0.0.0.0 --port=8000
+      '
+    networks:
+      - cms_apps
+
+  laravel-ai-cms-worker:
+    image: php:8.2-cli
+    profiles: ["laravel-ai-cms"]
+    working_dir: /var/www/html
+    depends_on:
+      laravel-ai-cms:
+        condition: service_started
+      laravel-ai-cms-mysql:
+        condition: service_healthy
+    volumes:
+      - ./cms/laravel-ai-cms:/var/www/html
+    command: >
+      sh -lc '
+      apt-get update -q && apt-get install -y -q libpdo-mysql libonig-dev libzip-dev &&
+      docker-php-ext-install pdo_mysql zip mbstring &&
+      sleep 30 &&
+      php artisan queue:work --sleep=3 --tries=3 --timeout=120
+      '
+    networks:
+      - cms_apps
+
+  laravel-ai-cms-bridge:
+    image: python:3.12-alpine
+    profiles: ["laravel-ai-cms"]
+    working_dir: /app
+    volumes:
+      - ./cms/apps/laravel-ai-cms-bridge:/app
+    ports:
+      - "8012:8012"
+    command: >
+      sh -lc 'python main.py 8012'
+    networks:
+      - cms_apps
+
+  # ── crm-billing integration (mostakinads-design/crm-laravel) ────────────
+  # Profile: crm-billing
+  # Prerequisites: clone https://github.com/mostakinads-design/crm-laravel
+  #   into ./cms/crm-billing, then:
+  #     cp cms/crm-billing/.env.localai cms/crm-billing/.env
+  #
+  # Start:
+  #   docker compose -f docker-compose.cms.yaml \
+  #     --profile crm-billing --profile with-localai up -d
+  #
+  # Invoice auto-generation API (via bridge):
+  #   POST http://localhost:8013/invoices/generate
+  #   Body: {"customer_name":"Acme","deal_title":"Annual Plan","deal_value":4800,"currency":"USD"}
+
+  crm-billing-mysql:
+    image: mysql:8.0
+    profiles: ["crm-billing"]
+    environment:
+      MYSQL_DATABASE: crm_billing
+      MYSQL_USER: crm
+      MYSQL_PASSWORD: crm_secret
+      MYSQL_ROOT_PASSWORD: root_secret
+    volumes:
+      - crm_billing_mysql:/var/lib/mysql
+    networks:
+      - cms_apps
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-ucrm", "-pcrm_secret"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  crm-billing:
+    image: php:8.2-cli
+    profiles: ["crm-billing"]
+    working_dir: /var/www/html
+    ports:
+      - "8093:8000"
+    depends_on:
+      crm-billing-mysql:
+        condition: service_healthy
+      crm-billing-bridge:
+        condition: service_started
+    volumes:
+      - ./cms/crm-billing:/var/www/html
+    command: >
+      sh -lc '
+      apt-get update -q && apt-get install -y -q unzip git libzip-dev libpdo-mysql libonig-dev libicu-dev &&
+      docker-php-ext-install pdo_mysql zip mbstring intl &&
+      curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer &&
+      composer install --no-interaction --prefer-dist &&
+      cp -n .env.localai .env || true &&
+      php artisan key:generate --force &&
+      php artisan migrate --force &&
+      php artisan db:seed --force &&
+      php artisan serve --host=0.0.0.0 --port=8000
+      '
+    networks:
+      - cms_apps
+
+  crm-billing-worker:
+    image: php:8.2-cli
+    profiles: ["crm-billing"]
+    working_dir: /var/www/html
+    depends_on:
+      crm-billing:
+        condition: service_started
+      crm-billing-mysql:
+        condition: service_healthy
+    volumes:
+      - ./cms/crm-billing:/var/www/html
+    command: >
+      sh -lc '
+      apt-get update -q && apt-get install -y -q libpdo-mysql libonig-dev libzip-dev libicu-dev &&
+      docker-php-ext-install pdo_mysql zip mbstring intl &&
+      sleep 30 &&
+      php artisan queue:work --sleep=3 --tries=3 --timeout=180
+      '
+    networks:
+      - cms_apps
+
+  crm-billing-bridge:
+    image: python:3.12-alpine
+    profiles: ["crm-billing"]
+    working_dir: /app
+    volumes:
+      - ./cms/apps/crm-billing-bridge:/app
+    ports:
+      - "8013:8013"
+    command: >
+      sh -lc 'python main.py 8013'
+    networks:
+      - cms_apps
+
+  # ── LocalAI core service ─────────────────────────────────────────────────
+  api:
+    image: quay.io/go-skynet/local-ai:master
+    profiles: ["with-localai"]
+    ports:
+      - "8080:8080"
+    environment:
+      MODELS_PATH: /models
+    volumes:
+      - cms_localai_models:/models
+    networks:
+      - cms_apps
+
+networks:
+  cms_apps:
+    driver: bridge
+
+volumes:
+  cms_localai_models:
+  laravel_ai_cms_mysql:
+  crm_billing_mysql:
