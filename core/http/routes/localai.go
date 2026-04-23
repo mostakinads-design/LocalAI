@@ -65,6 +65,7 @@ func RegisterLocalAIRoutes(router *echo.Echo,
 		router.POST("/backends/delete/:name", backendGalleryEndpointService.DeleteBackendEndpoint(), adminMiddleware)
 		router.GET("/backends", backendGalleryEndpointService.ListBackendsEndpoint(), adminMiddleware)
 		router.GET("/backends/available", backendGalleryEndpointService.ListAvailableBackendsEndpoint(appConfig.SystemState), adminMiddleware)
+		router.GET("/backends/known", backendGalleryEndpointService.ListKnownBackendsEndpoint(appConfig.SystemState), adminMiddleware)
 		router.GET("/backends/galleries", backendGalleryEndpointService.ListBackendGalleriesEndpoint(), adminMiddleware)
 		router.GET("/backends/jobs/:uuid", backendGalleryEndpointService.GetOpStatusEndpoint(), adminMiddleware)
 		router.GET("/backends/upgrades", backendGalleryEndpointService.GetUpgradesEndpoint(), adminMiddleware)
@@ -96,6 +97,28 @@ func RegisterLocalAIRoutes(router *echo.Echo,
 		detectionHandler,
 		requestExtractor.BuildFilteredFirstAvailableDefaultModel(config.BuildUsecaseFilterFn(config.FLAG_DETECTION)),
 		requestExtractor.SetModelAndConfig(func() schema.LocalAIRequest { return new(schema.DetectionRequest) }))
+
+	// Face recognition endpoints
+	faceMw := []echo.MiddlewareFunc{
+		requestExtractor.BuildFilteredFirstAvailableDefaultModel(config.BuildUsecaseFilterFn(config.FLAG_FACE_RECOGNITION)),
+	}
+	router.POST("/v1/face/verify",
+		localai.FaceVerifyEndpoint(cl, ml, appConfig),
+		append(faceMw, requestExtractor.SetModelAndConfig(func() schema.LocalAIRequest { return new(schema.FaceVerifyRequest) }))...)
+	router.POST("/v1/face/analyze",
+		localai.FaceAnalyzeEndpoint(cl, ml, appConfig),
+		append(faceMw, requestExtractor.SetModelAndConfig(func() schema.LocalAIRequest { return new(schema.FaceAnalyzeRequest) }))...)
+	router.POST("/v1/face/embed",
+		localai.FaceEmbedEndpoint(cl, ml, appConfig),
+		append(faceMw, requestExtractor.SetModelAndConfig(func() schema.LocalAIRequest { return new(schema.FaceEmbedRequest) }))...)
+	router.POST("/v1/face/register",
+		localai.FaceRegisterEndpoint(cl, ml, appConfig, app.FaceRegistry()),
+		append(faceMw, requestExtractor.SetModelAndConfig(func() schema.LocalAIRequest { return new(schema.FaceRegisterRequest) }))...)
+	router.POST("/v1/face/identify",
+		localai.FaceIdentifyEndpoint(cl, ml, appConfig, app.FaceRegistry()),
+		append(faceMw, requestExtractor.SetModelAndConfig(func() schema.LocalAIRequest { return new(schema.FaceIdentifyRequest) }))...)
+	// Forget does not load a face model — it only needs the registry.
+	router.POST("/v1/face/forget", localai.FaceForgetEndpoint(app.FaceRegistry()))
 
 	ttsHandler := localai.TTSEndpoint(cl, ml, appConfig)
 	router.POST("/tts",
